@@ -1,2 +1,5 @@
-# mach_examples
-Example code for mach
+# Mach examples
+
+Example code for the Mach zig game engine https://machengine.org/.
+
+

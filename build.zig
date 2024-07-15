@@ -16,27 +16,56 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "shapes",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(exe);
-
-//    const core_platform = b.option(Platform, "core_platform", "mach core platform to use") orelse Platform.fromTarget(target.result);
-//    const build_options = b.addOptions();
-  //  build_options.addOption(Platform, "core_platform", core_platform);
-
-    // Add Mach dependency
     const mach_dep = b.dependency("mach", .{
         .target = target,
         .optimize = optimize,
+        .core_platform = .win32,            
     });
-//    mach_dep.module("mach").addImport("build-options", build_options.createModule());
-    exe.root_module.addImport("mach", mach_dep.module("mach"));
 
-    const run_cmd = b.addRunArtifact(exe);
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    const examples = [_][]const u8{
+        "shapes",
+        "polygons",
+        "physics",
+    };
+
+    for (examples) |example| {
+        var filename_buf: [255]u8 = undefined;
+        var run_command_buf:[255]u8 = undefined;
+        var run_command_description_buf: [255]u8 = undefined;
+
+        const filename = try std.fmt.bufPrint(&filename_buf, "src/example_{s}.zig", .{example});
+        const run_command = try std.fmt.bufPrint(&run_command_buf, "run-{s}", .{example});
+        const run_command_description = try std.fmt.bufPrint(&run_command_description_buf, "Run {s}", .{example});
+
+        const exe = b.addExecutable(.{
+            .name = example,
+            .root_source_file = b.path(filename),
+            .target = target,
+            .optimize = optimize,
+        });
+        b.installArtifact(exe);
+
+        //    mach_dep.module("mach").addImport("build-options", build_options.createModule());
+        exe.root_module.addImport("mach", mach_dep.module("mach"));
+
+        const run_cmd = b.addRunArtifact(exe);
+        const run_step = b.step(run_command, run_command_description);
+        run_step.dependOn(&run_cmd.step);
+    }
+
+    {
+        const exe = b.addExecutable(.{
+            .name = "zig_basics",
+            .root_source_file = b.path("src/examples/zig_basics.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        b.installArtifact(exe);
+        const run_cmd = b.addRunArtifact(exe);
+        const run_step = b.step("run-zig-basics", "Run the zig basics");
+        run_step.dependOn(&run_cmd.step);
+
+    }
+
 }

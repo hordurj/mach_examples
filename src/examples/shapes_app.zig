@@ -17,7 +17,6 @@ const drawRect = ex_shapes.drawRect;
 const col = ex_shapes.col;
 const rgb = ex_shapes.rgb;
 
-
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 // App state
@@ -29,8 +28,6 @@ allocator: std.mem.Allocator,
 frame_encoder: *gpu.CommandEncoder = undefined,
 frame_render_pass: *gpu.RenderPassEncoder = undefined,
 shapes_canvas: mach.EntityID = undefined,
-fps_timer: mach.Timer,
-frame_count: usize,
 
 pub const name = .app; // The main app has to be named .app
 pub const Mod = mach.Mod(@This());
@@ -56,7 +53,6 @@ fn init(
     shapes: *ex_shapes.Mod,
 ) !void {
     _ = core;
-//    core.schedule(.init, .{});
     shapes.schedule(.init);
     self.schedule(.after_init);    
 }
@@ -75,13 +71,13 @@ fn afterInit(
 
     const shapes_canvas = try entities.new();
     try  shapes.set(shapes_canvas, .shapes_pipeline, {});
+    try  shapes.set(shapes_canvas, .pipeline, shapes_canvas);
+
     shapes.schedule(.update);
 
     self.init(.{
         .allocator = allocator,
         .shapes_canvas = shapes_canvas,
-        .fps_timer = try mach.Timer.start(),
-        .frame_count = 0,
     });
 
     // const rect1 = try entities.new();
@@ -180,8 +176,6 @@ fn update(
     core: *mach.Core.Mod,
     self: *Mod,
 ) !void {
-    //const delta_time = game.state().timer.lap();
-    //game.state().time += delta_time;
     if (core.state().should_close) {
         return;
     }
@@ -205,6 +199,13 @@ fn tick_input(
             .key_press => |ev| {
                 switch (ev.key) {
                     .escape, .q => core.schedule(.exit),
+                    .f11 => {
+                        if (core.state().displayMode() != .fullscreen) {
+                            core.state().setDisplayMode(.fullscreen);
+                        } else {
+                            core.state().setDisplayMode(.windowed);
+                        }
+                    },
                     else => {},
                 }
             },
@@ -289,7 +290,6 @@ fn tick_render(
     core: *mach.Core.Mod,
     shapes: *ex_shapes.Mod,
 ) !void {
-
     const label = @tagName(name) ++ ".render";
     self.state().frame_encoder = core.state().device.createCommandEncoder(&.{ .label = label });
 
@@ -333,11 +333,10 @@ fn endFrame(
 
     core.schedule(.present_frame);
 
-
     // Every second, update the window title with the FPS
     try core.state().printTitle(
         core.state().main_window,
-        "core-custom-entrypoint [ {d}fps ] [ Input {d}hz ]",
+        "Shapes [ {d}fps ] [ Input {d}hz ]",
         .{
             // TODO(Core)
             core.state().frameRate(),

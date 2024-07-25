@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) !void {
         "shapes",
         "polygons",
         "physics",
+        "events"
     };
 
     for (examples) |example| {

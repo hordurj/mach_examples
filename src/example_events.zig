@@ -1,11 +1,12 @@
 const std = @import("std");
 const mach = @import("mach");
 
-pub const App = @import("examples/shapes_app.zig");
+pub const App = @import("examples/events_app.zig");
 pub const Shapes = @import("shapes/main.zig");
 
 pub const modules = .{
     mach.Core,
+    mach.gfx.text_modules,
     Shapes,
     App,
 };
@@ -17,6 +18,5 @@ pub fn main() !void {
 
     var app = try mach.App.init(allocator, .app);
     defer app.deinit(allocator);
-    try app.run(.{ .allocator = allocator, .power_preference = .high_performance, .border = false}); //, .display_mode = .fullscreen });
-
+    try app.run(.{ .allocator = allocator, .power_preference = .high_performance });
 }

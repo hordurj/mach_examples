@@ -193,7 +193,7 @@ fn tick_input(
             },
             .mouse_motion => |ev| {
                 const pos = window_to_canvas(core, ev.pos);
-                std.debug.print("Mouse move: {d:0.1} {d:0.1} \n", .{pos.x(), pos.y()});
+                std.debug.print("Mouse move: {d:0.1} {d:0.1} \n ", .{pos.x(), pos.y()});
             },
             .close => core.schedule(.exit),
             else => {},

@@ -42,7 +42,7 @@ pub const components = .{
     .color = .{ .type = Vec4 },
     .line = .{ .type = Line },
     .triangle = .{ .type = Triangle },
-//    .path
+//    .path         // .polygon
 //    .quadratic   .cubic
     .circle = .{ .type = Circle },
     .line_style = .{ .type = LineStyle },

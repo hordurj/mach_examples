@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const mach = @import("mach");
 const math = mach.math;
 const vec2 = math.vec2;
@@ -18,9 +19,11 @@ const drawRect = ex_shapes.drawRect;
 const drawTriangle = ex_shapes.drawTriangle;
 const col = ex_shapes.col;
 const rgb = ex_shapes.rgb;
+const gm = @import("../geometry.zig");
+const Polygon = gm.Polygon;
+const Triangle = gm.Triangle;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
 // App state
 width: f32 = 960.0,         // Width of render area - will be scaled to window
 height: f32 = 540.0,        // Height of render area - will be scaled to window
@@ -31,10 +34,11 @@ frame_encoder: *gpu.CommandEncoder = undefined,
 frame_render_pass: *gpu.RenderPassEncoder = undefined,
 shapes_canvas: mach.EntityID = undefined,
 triangle_canvas: mach.EntityID = undefined,
-fps_timer: mach.Timer,
-frame_count: usize,
 
 polygon: Polygon,
+polygon_list: std.ArrayList(Polygon),
+polygon_changed: bool = false,
+triangles: std.ArrayList(Triangle),
 
 pub const name = .app; // The main app has to be named .app
 pub const Mod = mach.Mod(@This());
@@ -54,58 +58,7 @@ pub const components = .{
     .velocity = .{ .type = math.Vec2, .description = ""},
 };
 
-const Polygon = struct {
-    vertices: std.ArrayList(Vec2),
-    indices: std.ArrayList(u32),
-
-    pub fn init(allocator: std.mem.Allocator) Polygon {
-        return Polygon {
-            .vertices = std.ArrayList(Vec2).init(allocator),
-            .indices = std.ArrayList(u32).init(allocator),
-        };
-    }
-    pub fn deinit(self: *Polygon) void {
-        self.vertices.deinit();
-        self.indices.deinit();
-    } 
-
-    pub fn add(self: *Polygon, p: Vec2) !void {
-        std.debug.print("Add vertex: {} {}\n", .{p, self.vertices.items.len});
-        try self.indices.append(@truncate(self.vertices.items.len));
-        try self.vertices.append(p);
-    }
-
-    // transform
-    // area
-    // insert_polygon
-    // rightmost_vertex
-    // is_reflexive
-    // merge_polygon
-    // from_points
-
-};
-
-fn cross_2d(v1: Vec2, v2: Vec2) f32 {
-    return v1.x() * v2.y() - v1.y() * v2.x();
-}
-
-fn hit_test_triangle(triangle: anytype, p: Vec2) bool {
-    _ = triangle;
-    _ = p;
-    return false;   
-}
-
-// TOOD: return a pointer or index to the point?
-fn hit_test_points(points: []Vec2, pos: Vec2, width: f32) ?Vec2 {
-    for (points) |p| {
-        if ((p.x()-width/2.0 <= pos.x() and pos.x() <= p.x()+width/2.0) and (p.y()-width/2.0 <= pos.y() and pos.y() <= p.y()+width/2.0)) {
-            return p;
-        }
-    }
-    return null;
-}
-
-fn window_to_canvas(core: *mach.Core.Mod, pos: mach.Core.Position) Vec2 {
+fn windowToCanvas(core: *mach.Core.Mod, pos: mach.Core.Position) Vec2 {
     const window = core.state().main_window;
     const width:f32 = @floatFromInt(core.get(window, .width).?);
     const height:f32 = @floatFromInt(core.get(window, .height).?);
@@ -122,9 +75,15 @@ fn init(
     self.schedule(.after_init);    
 }
 fn deinit(
+    self: *Mod,
     shapes: *ex_shapes.Mod,
 ) !void {
     shapes.schedule(.deinit);
+    self.state().polygon.deinit();
+    for (self.state().polygon_list.items) |*polygon| {
+        polygon.deinit();
+    }
+    self.state().polygon_list.deinit();
 }
 
 fn afterInit(
@@ -150,9 +109,9 @@ fn afterInit(
         .allocator = allocator,
         .shapes_canvas = shapes_canvas,
         .triangle_canvas = triangle_canvas,
-        .fps_timer = try mach.Timer.start(),
-        .frame_count = 0,
         .polygon = Polygon.init(allocator),
+        .polygon_list = std.ArrayList(Polygon).init(allocator),
+        .triangles = std.ArrayList(Triangle).init(allocator),
     });
 }
 
@@ -169,6 +128,62 @@ fn update(
     self.schedule(.render);
 }
 
+fn clearPolygons(self: *Mod) void {
+    self.state().polygon.clear();
+    for (self.state().polygon_list.items) |*polygon| {
+        polygon.deinit();
+    }
+    self.state().polygon_list.clearRetainingCapacity();
+}
+
+fn savePolygon(self: *Mod) !void {
+    var string = std.ArrayList(u8).init(self.state().allocator);
+    defer string.deinit();
+
+    const file = try std.fs.cwd().createFile(
+        "polygon.txt",
+        .{ .truncate = true },
+    );
+    defer file.close();
+    
+    try string.writer().print("[",.{});
+    for (self.state().polygon_list.items) |*polygon| {
+        try std.json.stringify(polygon.vertices.items, .{}, string.writer());    
+        try string.writer().print(",",.{});
+    }
+    try string.writer().print("[]]",.{});
+
+    std.debug.print("Save: {s}\n", .{string.items});
+    _ = try file.writer().write(string.items);
+}
+
+fn loadPolygon(self: *Mod) !void {
+    const file = try std.fs.cwd().openFile("polygon.txt", .{.mode = .read_only});
+    defer file.close();
+
+    var buffered = std.io.bufferedReader(file.reader());
+    var reader = buffered.reader();    
+    const data = try reader.readAllAlloc(self.state().allocator, 4*1024*1024);
+    defer self.state().allocator.free(data);
+
+    std.debug.print("Load: {s}\n", .{data});
+
+    const Polygons = [][]Vec2;
+    const polygons = try std.json.parseFromSlice(Polygons, self.state().allocator, data, .{});
+    defer polygons.deinit();
+
+    clearPolygons(self);
+    for (polygons.value) |polygon| {    
+        if (polygon.len > 0) {
+            var new_polygon = Polygon.init(self.state().allocator);
+            for (polygon) |v| {
+                try new_polygon.add(v);
+            }
+            try self.state().polygon_list.append(new_polygon);
+        }    
+    }
+}
+
 fn tick_input(
     self: *Mod, 
     core: *mach.Core.Mod,
@@ -180,25 +195,64 @@ fn tick_input(
             .key_press => |ev| {
                 switch (ev.key) {
                     .escape, .q => core.schedule(.exit),
+                    .c => {
+                        // Clear
+                        clearPolygons(self);
+                        self.state().polygon_changed = true;
+                    },
+                    .s => {
+                        // Save polygon
+                        try savePolygon(self);
+                    },
+                    .l => {
+                        // Load polygon
+                        try loadPolygon(self);
+                        self.state().polygon_changed = true;
+                    },
                     else => {},
                 }
             },
             .mouse_press => |ev| {
-                // TODO: need a screen to world transformation
-                const pos = window_to_canvas(core, ev.pos);
-                try self.state().polygon.add(pos);
+                switch (ev.button) {
+                    .left => {
+                        // TODO: need a screen to world transformation
+                        const pos = windowToCanvas(core, ev.pos);
+                        if (self.state().polygon_list.items.len == 0) {
+                            const new_polygon = Polygon.init(self.state().allocator);
+                            try self.state().polygon_list.append(new_polygon);
+                        }
+                        try self.state().polygon_list.items[self.state().polygon_list.items.len-1].add(pos);
+                        self.state().polygon_changed = true;
+                    },
+                    .right => {
+                        if (self.state().polygon_list.items.len > 0) {                        
+                            if (self.state().polygon_list.getLast().indices.items.len > 2) {
+                                // start a new path                        
+                                const new_polygon = Polygon.init(self.state().allocator);
+                                try self.state().polygon_list.append(new_polygon);
+                            } else {
+                                self.state().polygon_list.items[self.state().polygon_list.items.len-1].clear();
+                            }
+                        }
+                    },
+                    else => {}
+                }
             },
-            .mouse_release => |ev| {
-                _ = ev;
+            .mouse_release => |_| {
             },
-            .mouse_motion => |ev| {
-                const pos = window_to_canvas(core, ev.pos);
-                std.debug.print("Mouse move: {d:0.1} {d:0.1} \n ", .{pos.x(), pos.y()});
+            .mouse_motion => |_| {
+                //const pos = window_to_canvas(core, ev.pos);
+                //std.debug.print("Mouse move: {d:0.1} {d:0.1} \n ", .{pos.x(), pos.y()});
             },
             .close => core.schedule(.exit),
             else => {},
         }
     }
+}
+
+fn polygonFurtherRight(context: void, lhs: *Polygon, rhs: *Polygon) bool {
+    _ = context;
+    return lhs.rightmostVertex().vertex.x() > rhs.rightmostVertex().vertex.x();
 }
 
 fn tick_render(
@@ -230,83 +284,159 @@ fn tick_render(
     const shapes_canvas = self.state().shapes_canvas;
     const triangle_canvas = self.state().triangle_canvas;
 
-    // Clear all shapes
-    // TODO: create a remove helper
+    if (self.state().polygon_changed)
     {
-        var q = try entities.query(.{
-            .ids = mach.Entities.Mod.read(.id),
-            .pipelines = ex_shapes.Mod.read(.pipeline),
-        });
-        while (q.next()) |e| {
-            for (e.ids, e.pipelines) |id, pipeline| {
-                if (pipeline == shapes_canvas and id > 2) {
-                    try entities.remove(id);
+        const polygon = &self.state().polygon;
+        polygon.clear();
+
+        if (self.state().polygon_list.items.len > 0) {
+            try polygon.indices.appendSlice(self.state().polygon_list.items[0].indices.items);
+            try polygon.vertices.appendSlice(self.state().polygon_list.items[0].vertices.items);
+
+            var polygons = std.ArrayList(*Polygon).init(self.state().allocator);
+            defer polygons.deinit();
+            _ = try polygons.addManyAsSlice(self.state().polygon_list.items.len-1);
+            for (1..self.state().polygon_list.items.len) |i| {
+                polygons.items[i-1] = &self.state().polygon_list.items[i];    
+            }
+            std.sort.pdq(*Polygon, polygons.items, {}, polygonFurtherRight);
+            for (polygons.items) |next_polygon| {
+                if (next_polygon.vertices.items.len > 2) {
+                    try polygon.merge(next_polygon);
                 }
             }
         }
-    }
 
-    {
-        var q = try entities.query(.{
-            .ids = mach.Entities.Mod.read(.id),
-            .pipelines = ex_shapes.Mod.read(.triangle_pipeline),
-        });
-        while (q.next()) |e| {
-            for (e.ids, e.pipelines) |id, pipeline| {
-                if (pipeline == triangle_canvas and id > 2) {
-                    try entities.remove(id);
+        // Clear all shapes
+        // TODO: create a remove helper
+        const t_start_delete: i64 = std.time.microTimestamp();
+        {
+            var q = try entities.query(.{
+                .ids = mach.Entities.Mod.read(.id),
+                .pipelines = ex_shapes.Mod.read(.pipeline),
+            });
+            while (q.next()) |e| {
+                for (e.ids, e.pipelines) |id, pipeline| {
+                    if (pipeline == shapes_canvas and id > 2) {
+                        try entities.remove(id);
+                    }
                 }
             }
         }
-    }
 
-    var canvas = Canvas{
-        .entities = entities, 
-        .shapes = shapes, 
-        .canvas = shapes_canvas,
-        .line_style = .{.color =  col(.MediumSlateBlue), .width = 2.0},
-        .fill_style = .{.color =  col(.SkyBlue)},
-    };
-
-    const polygon = self.state().polygon;
-
-    // Draw points for vertices
-    // TODO: see if vertices could be stored as entities
-    for (polygon.vertices.items) |pos| {
-        const vertex = try drawCircle(&canvas, pos.x(), pos.y(), 20.0, 20.0);
-        _ = vertex; // do anything to it?
-    }
-
-    // Draw lines
-    if (polygon.indices.items.len > 1) 
-    {
-        canvas.line_style.width = 1.0;
-        canvas.line_style.color = col(.White);    
-        for (0..polygon.indices.items.len-1) |i| {
-            const p0 = polygon.vertices.items[i];
-            const p1 = polygon.vertices.items[i+1];
-            const vertex = try drawLine(&canvas, p0.x(), p0.y(), p1.x(), p1.y());
-            _ = vertex; // do anything to it?
+        {
+            var q = try entities.query(.{
+                .ids = mach.Entities.Mod.read(.id),
+                .pipelines = ex_shapes.Mod.read(.triangle_pipeline),
+            });
+            while (q.next()) |e| {
+                for (e.ids, e.pipelines) |id, pipeline| {
+                    if (pipeline == triangle_canvas and id > 2) {
+                        try entities.remove(id);
+                    }
+                }
+            }
         }
-    }
+        const t_delete_time: f32 = @floatFromInt(std.time.microTimestamp() - t_start_delete);
+        std.debug.print("Deleting shapes took {d:.1} ms\n", .{t_delete_time/1000.0});
 
-    // Triangulate
-    // Draw triangles
-    {
-        var tri_canvas = Canvas{
+        var canvas = Canvas{
             .entities = entities, 
             .shapes = shapes, 
-            .canvas = triangle_canvas,
+            .canvas = shapes_canvas,
             .line_style = .{.color =  col(.MediumSlateBlue), .width = 2.0},
-            .fill_style = .{.color =  col(.CornFlowerBlue)},
+            .fill_style = .{.color =  col(.SkyBlue)},
         };
 
-        _ = try drawTriangle(&tri_canvas, -100.0, -100.0, 0.0, 0.0, 100.0, -100.0);
-        _ = try drawTriangle(&tri_canvas, -300.0, -100.0 + 100.0, -200.0, 0.0 + 100.0, -100.0, -100.0 + 100.0);
+        var triangles = &self.state().triangles; 
+
+        // Triangulate
+        // Draw triangles
+        {
+            const t_start_draw: i64 = std.time.microTimestamp();
+
+            var tri_canvas = Canvas{
+                .entities = entities, 
+                .shapes = shapes, 
+                .canvas = triangle_canvas,
+                .line_style = .{.color =  col(.MediumSlateBlue), .width = 2.0},
+                .fill_style = .{.color =  col(.CornFlowerBlue)},
+            };
+
+            if (polygon.indices.items.len > 2) {
+                if (self.state().polygon_changed) {
+                    triangles.clearRetainingCapacity();
+                    const t_start: i64 = std.time.microTimestamp();
+                    _ = try gm.triangulate(polygon, triangles);
+                    const t: f32 = @floatFromInt(std.time.microTimestamp() - t_start);
+                    std.debug.print("Triangulating {} vertices took {} ms\n", .{polygon.indices.items.len, t/1000.0});
+                    self.state().polygon_changed = false;                
+                }
+
+                // Draw triangles
+                for (triangles.items) |t| {
+                    const v0 = polygon.vertices.items[t[0]];
+                    const v1 = polygon.vertices.items[t[1]];
+                    const v2 = polygon.vertices.items[t[2]];
+                    _ = try drawTriangle(&tri_canvas, 
+                        v0.x(), v0.y(),
+                        v1.x(), v1.y(),
+                        v2.x(), v2.y(),
+                    );
+                }
+
+                if (false) {
+                    canvas.line_style = .{.color =  col(.Yellow), .width = 2.0};
+                    for (triangles.items) |t| {
+                        const v0 = polygon.vertices.items[t[0]];
+                        const v1 = polygon.vertices.items[t[1]];
+                        const v2 = polygon.vertices.items[t[2]];
+
+                        _ = try drawLine(&canvas, v0.x(), v0.y(), v1.x(), v1.y());
+                        _ = try drawLine(&canvas, v1.x(), v1.y(), v2.x(), v2.y());
+                        _ = try drawLine(&canvas, v2.x(), v2.y(), v0.x(), v0.y());
+                    }
+                }
+            } 
+
+            const t_draw_time: f32 = @floatFromInt(std.time.microTimestamp() - t_start_draw);
+            std.debug.print("Drawing triangles took {d:.1} ms\n", .{t_draw_time/1000.0});
+
+            // Draw lines
+            if (true)
+            {
+                canvas.line_style = .{.color =  col(.White), .width = 2.0};
+                if (polygon.indices.items.len > 1) 
+                {
+                    canvas.line_style.width = 2.0;
+                    canvas.line_style.color = col(.Red);    
+                    const N = polygon.indices.items.len;
+                    for (0..N) |i| {
+                        const p0 = polygon.vertices.items[polygon.indices.items[i % N]];
+                        const p1 = polygon.vertices.items[polygon.indices.items[(i+1) % N]];
+                        const vertex = try drawLine(&canvas, p0.x(), p0.y(), p1.x(), p1.y());
+                        _ = vertex; // do anything to it?
+                    }
+                }
+            }
+            self.state().polygon_changed = false;
+        }
+
+        // Draw points for vertices
+        // TODO: see if vertices could be stored as entities
+        canvas.fill_style.color = col(.Orange);
+        canvas.line_style.color = col(.DarkGrey);
+        if (false) {
+            for (polygon.vertices.items) |pos| {
+                const vertex = try drawCircle(&canvas, pos.x(), pos.y(), 15.0, 15.0);
+                _ = vertex; // do anything to it?
+            }
+        }
+
     }
     // Go through data and update
     shapes.state().render_pass = self.state().frame_render_pass;
-    shapes.schedule(.update_shapes);        // Only happens is shapes have changed
+    shapes.schedule(.update_shapes);        // Only happens if shapes have changed
     shapes.schedule(.pre_render);           
     shapes.schedule(.render);
 
@@ -329,15 +459,13 @@ fn endFrame(
 
     core.schedule(.present_frame);
 
-
     // Every second, update the window title with the FPS
     try core.state().printTitle(
         core.state().main_window,
-        "core-custom-entrypoint [ {d}fps ] [ Input {d}hz ]",
+        "Polygon example [ {d}fps ] ", //[ Input {d}hz ]
         .{
-            // TODO(Core)
             core.state().frameRate(),
-            core.state().inputRate(),
+//            core.state().inputRate(),
         },
     );
 

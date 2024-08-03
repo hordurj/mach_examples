@@ -22,17 +22,19 @@ pub fn build(b: *std.Build) !void {
         .core_platform = .win32,
     });
 
-    // const ztracy = b.dependency("ztracy", .{
-    //     .enable_ztracy = false,
-    //     .enable_fibers = false,
-    // });
+    const ztracy = b.dependency("ztracy", .{
+        .enable_ztracy = false,
+        .enable_fibers = false,
+    });
 
     const examples = [_][]const u8{
         "shapes",
         "polygons",
         "physics",
         "events",
-        //        "ecs"
+        "ecs",
+        "ecs_query",
+        "collision"
     };
 
     for (examples) |example| {
@@ -54,8 +56,8 @@ pub fn build(b: *std.Build) !void {
 
         //    mach_dep.module("mach").addImport("build-options", build_options.createModule());
         exe.root_module.addImport("mach", mach_dep.module("mach"));
-        //exe.root_module.addImport("ztracy", ztracy.module("root"));
-        //exe.linkLibrary(ztracy.artifact("tracy"));
+        exe.root_module.addImport("ztracy", ztracy.module("root"));
+        exe.linkLibrary(ztracy.artifact("tracy"));
 
         const run_cmd = b.addRunArtifact(exe);
         const run_step = b.step(run_command, run_command_description);

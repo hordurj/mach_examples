@@ -25,7 +25,7 @@
             //.url = "https://pkg.machengine.org/mach/b72f0e11b6d292c2b60789359a61f7ee6d7dc371.tar.gz",
             //.hash = "122015e1dac4afaf275f7f2adde3814e6a27f5799cbef96bb487ee305f7e33f4dca3",
         },
-        // .ztracy = .{ .path = "ztracy" },        
+        .ztracy = .{ .path = "ztracy" },        
     },
 
     // Specifies the set of files and directories that are included in this package.

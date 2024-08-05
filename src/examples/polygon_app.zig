@@ -25,8 +25,8 @@ const Triangle = gm.Triangle;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 // App state
-width: f32 = 960.0,         // Width of render area - will be scaled to window
-height: f32 = 540.0,        // Height of render area - will be scaled to window
+width: f32 = 960.0, // Width of render area - will be scaled to window
+height: f32 = 540.0, // Height of render area - will be scaled to window
 
 // Resources
 allocator: std.mem.Allocator,
@@ -55,15 +55,17 @@ pub const systems = .{
 };
 
 pub const components = .{
-    .velocity = .{ .type = math.Vec2, .description = ""},
+    .velocity = .{ .type = math.Vec2, .description = "" },
 };
 
 fn windowToCanvas(core: *mach.Core.Mod, pos: mach.Core.Position) Vec2 {
     const window = core.state().main_window;
-    const width:f32 = @floatFromInt(core.get(window, .width).?);
-    const height:f32 = @floatFromInt(core.get(window, .height).?);
-    var x: f32 = @floatCast(pos.x); x -= width / 2.0;
-    var y: f32 = @floatCast(pos.y); y = -y + height / 2.0;
+    const width: f32 = @floatFromInt(core.get(window, .width).?);
+    const height: f32 = @floatFromInt(core.get(window, .height).?);
+    var x: f32 = @floatCast(pos.x);
+    x -= width / 2.0;
+    var y: f32 = @floatCast(pos.y);
+    y = -y + height / 2.0;
     return vec2(x, y);
 }
 
@@ -72,7 +74,7 @@ fn init(
     shapes: *ex_shapes.Mod,
 ) !void {
     shapes.schedule(.init);
-    self.schedule(.after_init);    
+    self.schedule(.after_init);
 }
 fn deinit(
     self: *Mod,
@@ -94,12 +96,12 @@ fn afterInit(
     const allocator = gpa.allocator();
 
     const shapes_canvas = try entities.new();
-    try  shapes.set(shapes_canvas, .shapes_pipeline, {});
-    try  shapes.set(shapes_canvas, .pipeline, shapes_canvas);
+    try shapes.set(shapes_canvas, .shapes_pipeline, {});
+    try shapes.set(shapes_canvas, .pipeline, shapes_canvas);
 
     const triangle_canvas = try entities.new();
-    try  shapes.set(triangle_canvas, .shapes_pipeline, {});
-    try  shapes.set(triangle_canvas, .triangle_pipeline, triangle_canvas);
+    try shapes.set(triangle_canvas, .shapes_pipeline, {});
+    try shapes.set(triangle_canvas, .triangle_pipeline, triangle_canvas);
 
     shapes.schedule(.update);
 
@@ -145,25 +147,25 @@ fn savePolygon(self: *Mod) !void {
         .{ .truncate = true },
     );
     defer file.close();
-    
-    try string.writer().print("[",.{});
+
+    try string.writer().print("[", .{});
     for (self.state().polygon_list.items) |*polygon| {
-        try std.json.stringify(polygon.vertices.items, .{}, string.writer());    
-        try string.writer().print(",",.{});
+        try std.json.stringify(polygon.vertices.items, .{}, string.writer());
+        try string.writer().print(",", .{});
     }
-    try string.writer().print("[]]",.{});
+    try string.writer().print("[]]", .{});
 
     std.debug.print("Save: {s}\n", .{string.items});
     _ = try file.writer().write(string.items);
 }
 
 fn loadPolygon(self: *Mod) !void {
-    const file = try std.fs.cwd().openFile("polygon.txt", .{.mode = .read_only});
+    const file = try std.fs.cwd().openFile("polygon.txt", .{ .mode = .read_only });
     defer file.close();
 
     var buffered = std.io.bufferedReader(file.reader());
-    var reader = buffered.reader();    
-    const data = try reader.readAllAlloc(self.state().allocator, 4*1024*1024);
+    var reader = buffered.reader();
+    const data = try reader.readAllAlloc(self.state().allocator, 4 * 1024 * 1024);
     defer self.state().allocator.free(data);
 
     std.debug.print("Load: {s}\n", .{data});
@@ -173,21 +175,21 @@ fn loadPolygon(self: *Mod) !void {
     defer polygons.deinit();
 
     clearPolygons(self);
-    for (polygons.value) |polygon| {    
+    for (polygons.value) |polygon| {
         if (polygon.len > 0) {
             var new_polygon = Polygon.init(self.state().allocator);
             for (polygon) |v| {
                 try new_polygon.add(v);
             }
             try self.state().polygon_list.append(new_polygon);
-        }    
+        }
     }
 }
 
 fn tick_input(
-    self: *Mod, 
+    self: *Mod,
     core: *mach.Core.Mod,
-) !void {    
+) !void {
     var iter = core.state().pollEvents();
     // Handle inputs
     while (iter.next()) |event| {
@@ -221,27 +223,26 @@ fn tick_input(
                             const new_polygon = Polygon.init(self.state().allocator);
                             try self.state().polygon_list.append(new_polygon);
                         }
-                        try self.state().polygon_list.items[self.state().polygon_list.items.len-1].add(pos);
+                        try self.state().polygon_list.items[self.state().polygon_list.items.len - 1].add(pos);
                         self.state().polygon_changed = true;
                     },
                     .right => {
-                        if (self.state().polygon_list.items.len > 0) {                        
+                        if (self.state().polygon_list.items.len > 0) {
                             if (self.state().polygon_list.getLast().indices.items.len > 2) {
-                                // start a new path                        
+                                // start a new path
                                 const new_polygon = Polygon.init(self.state().allocator);
                                 try self.state().polygon_list.append(new_polygon);
                             } else {
-                                self.state().polygon_list.items[self.state().polygon_list.items.len-1].clear();
+                                self.state().polygon_list.items[self.state().polygon_list.items.len - 1].clear();
                             }
                         }
                     },
-                    else => {}
+                    else => {},
                 }
             },
-            .mouse_release => |_| {
-            },
+            .mouse_release => |_| {},
             .mouse_motion => |_| {
-                //const pos = window_to_canvas(core, ev.pos);
+                //const pos = windowToCanvas(core, ev.pos);
                 //std.debug.print("Mouse move: {d:0.1} {d:0.1} \n ", .{pos.x(), pos.y()});
             },
             .close => core.schedule(.exit),
@@ -261,7 +262,6 @@ fn tick_render(
     core: *mach.Core.Mod,
     shapes: *ex_shapes.Mod,
 ) !void {
-
     const label = @tagName(name) ++ ".render";
     self.state().frame_encoder = core.state().device.createCommandEncoder(&.{ .label = label });
 
@@ -284,8 +284,7 @@ fn tick_render(
     const shapes_canvas = self.state().shapes_canvas;
     const triangle_canvas = self.state().triangle_canvas;
 
-    if (self.state().polygon_changed)
-    {
+    if (self.state().polygon_changed) {
         const polygon = &self.state().polygon;
         polygon.clear();
 
@@ -295,9 +294,9 @@ fn tick_render(
 
             var polygons = std.ArrayList(*Polygon).init(self.state().allocator);
             defer polygons.deinit();
-            _ = try polygons.addManyAsSlice(self.state().polygon_list.items.len-1);
+            _ = try polygons.addManyAsSlice(self.state().polygon_list.items.len - 1);
             for (1..self.state().polygon_list.items.len) |i| {
-                polygons.items[i-1] = &self.state().polygon_list.items[i];    
+                polygons.items[i - 1] = &self.state().polygon_list.items[i];
             }
             std.sort.pdq(*Polygon, polygons.items, {}, polygonFurtherRight);
             for (polygons.items) |next_polygon| {
@@ -338,17 +337,17 @@ fn tick_render(
             }
         }
         const t_delete_time: f32 = @floatFromInt(std.time.microTimestamp() - t_start_delete);
-        std.debug.print("Deleting shapes took {d:.1} ms\n", .{t_delete_time/1000.0});
+        std.debug.print("Deleting shapes took {d:.1} ms\n", .{t_delete_time / 1000.0});
 
         var canvas = Canvas{
-            .entities = entities, 
-            .shapes = shapes, 
+            .entities = entities,
+            .shapes = shapes,
             .canvas = shapes_canvas,
-            .line_style = .{.color =  col(.MediumSlateBlue), .width = 2.0},
-            .fill_style = .{.color =  col(.SkyBlue)},
+            .line_style = .{ .color = col(.MediumSlateBlue), .width = 2.0 },
+            .fill_style = .{ .color = col(.SkyBlue) },
         };
 
-        var triangles = &self.state().triangles; 
+        var triangles = &self.state().triangles;
 
         // Triangulate
         // Draw triangles
@@ -356,11 +355,11 @@ fn tick_render(
             const t_start_draw: i64 = std.time.microTimestamp();
 
             var tri_canvas = Canvas{
-                .entities = entities, 
-                .shapes = shapes, 
+                .entities = entities,
+                .shapes = shapes,
                 .canvas = triangle_canvas,
-                .line_style = .{.color =  col(.MediumSlateBlue), .width = 2.0},
-                .fill_style = .{.color =  col(.CornFlowerBlue)},
+                .line_style = .{ .color = col(.MediumSlateBlue), .width = 2.0 },
+                .fill_style = .{ .color = col(.CornFlowerBlue) },
             };
 
             if (polygon.indices.items.len > 2) {
@@ -369,8 +368,8 @@ fn tick_render(
                     const t_start: i64 = std.time.microTimestamp();
                     _ = try gm.triangulate(polygon, triangles);
                     const t: f32 = @floatFromInt(std.time.microTimestamp() - t_start);
-                    std.debug.print("Triangulating {} vertices took {} ms\n", .{polygon.indices.items.len, t/1000.0});
-                    self.state().polygon_changed = false;                
+                    std.debug.print("Triangulating {} vertices took {} ms\n", .{ polygon.indices.items.len, t / 1000.0 });
+                    self.state().polygon_changed = false;
                 }
 
                 // Draw triangles
@@ -378,15 +377,19 @@ fn tick_render(
                     const v0 = polygon.vertices.items[t[0]];
                     const v1 = polygon.vertices.items[t[1]];
                     const v2 = polygon.vertices.items[t[2]];
-                    _ = try drawTriangle(&tri_canvas, 
-                        v0.x(), v0.y(),
-                        v1.x(), v1.y(),
-                        v2.x(), v2.y(),
+                    _ = try drawTriangle(
+                        &tri_canvas,
+                        v0.x(),
+                        v0.y(),
+                        v1.x(),
+                        v1.y(),
+                        v2.x(),
+                        v2.y(),
                     );
                 }
 
                 if (false) {
-                    canvas.line_style = .{.color =  col(.Yellow), .width = 2.0};
+                    canvas.line_style = .{ .color = col(.Yellow), .width = 2.0 };
                     for (triangles.items) |t| {
                         const v0 = polygon.vertices.items[t[0]];
                         const v1 = polygon.vertices.items[t[1]];
@@ -397,23 +400,21 @@ fn tick_render(
                         _ = try drawLine(&canvas, v2.x(), v2.y(), v0.x(), v0.y());
                     }
                 }
-            } 
+            }
 
             const t_draw_time: f32 = @floatFromInt(std.time.microTimestamp() - t_start_draw);
-            std.debug.print("Drawing triangles took {d:.1} ms\n", .{t_draw_time/1000.0});
+            std.debug.print("Drawing triangles took {d:.1} ms\n", .{t_draw_time / 1000.0});
 
             // Draw lines
-            if (true)
-            {
-                canvas.line_style = .{.color =  col(.White), .width = 2.0};
-                if (polygon.indices.items.len > 1) 
-                {
+            if (true) {
+                canvas.line_style = .{ .color = col(.White), .width = 2.0 };
+                if (polygon.indices.items.len > 1) {
                     canvas.line_style.width = 2.0;
-                    canvas.line_style.color = col(.Red);    
+                    canvas.line_style.color = col(.Red);
                     const N = polygon.indices.items.len;
                     for (0..N) |i| {
                         const p0 = polygon.vertices.items[polygon.indices.items[i % N]];
-                        const p1 = polygon.vertices.items[polygon.indices.items[(i+1) % N]];
+                        const p1 = polygon.vertices.items[polygon.indices.items[(i + 1) % N]];
                         const vertex = try drawLine(&canvas, p0.x(), p0.y(), p1.x(), p1.y());
                         _ = vertex; // do anything to it?
                     }
@@ -432,22 +433,18 @@ fn tick_render(
                 _ = vertex; // do anything to it?
             }
         }
-
     }
     // Go through data and update
     shapes.state().render_pass = self.state().frame_render_pass;
-    shapes.schedule(.update_shapes);        // Only happens if shapes have changed
-    shapes.schedule(.pre_render);           
+    shapes.schedule(.update_shapes); // Only happens if shapes have changed
+    shapes.schedule(.pre_render);
     shapes.schedule(.render);
 
     // Finish the frame once rendering is done.
     self.schedule(.end_frame);
 }
 
-fn endFrame(
-    self: *Mod, 
-    core: *mach.Core.Mod
-) !void {
+fn endFrame(self: *Mod, core: *mach.Core.Mod) !void {
     // Finish render pass
     self.state().frame_render_pass.end();
     const label = @tagName(name) ++ ".endFrame";
@@ -465,8 +462,7 @@ fn endFrame(
         "Polygon example [ {d}fps ] ", //[ Input {d}hz ]
         .{
             core.state().frameRate(),
-//            core.state().inputRate(),
+            //            core.state().inputRate(),
         },
     );
-
 }

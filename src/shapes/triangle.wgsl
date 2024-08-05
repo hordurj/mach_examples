@@ -26,7 +26,7 @@ struct Fragment {
 @vertex
 fn vertMain(vertex: Vertex, @builtin(vertex_index) vertex_index: u32) -> Fragment {
     var p = shaderGlobal.modelviewprojection * vertex.pos; 
-    var v = vec4<f32>(VERTICES[vertex_index], 0.0, 1.0);
+    //var v = vec4<f32>(VERTICES[vertex_index], 0.0, 1.0);
 
     var out: Fragment;
     out.pos = p;

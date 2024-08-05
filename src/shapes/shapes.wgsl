@@ -54,6 +54,7 @@ struct FloatParams {
   let transform = transforms[instance_index];
   let t = uint_params[instance_index].param1.x & 255;
   var v = vec4<f32>(VERTICES[vertex_index], 0.0, 1.0);
+  v = transform * v;
 
   if (t == LINE) {
     // TODO: change to a transform
@@ -78,7 +79,7 @@ struct FloatParams {
   }
 
   var output: VertexOutput;    
-  output.Position = uniforms.view_projection * transform * v;
+  output.Position = uniforms.view_projection * v;
   output.frag_uv = vec4<f32>(VERTICES[vertex_index], 0.0, 0.0);
   output.params = vec4<u32>(instance_index, 0.0, 0.0, 0.0);
 
@@ -123,6 +124,10 @@ struct FloatParams {
     } else if (fill_color.a == 0.0) {
       discard;
     }
+    // if frag_uv.x < 0.0 {
+    //   col = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    // }
+
   } else if (t == LINE) {
     // Line
     col = color;

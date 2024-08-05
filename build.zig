@@ -34,7 +34,8 @@ pub fn build(b: *std.Build) !void {
         "events",
         "ecs",
         "ecs_query",
-        "collision"
+        "collision",
+        "sandbox"
     };
 
     for (examples) |example| {

@@ -8,7 +8,7 @@ const Vec3 = math.Vec3;
 const vec3 = math.vec3;
 const Mat4x4 = math.Mat4x4;
 
-pub fn window_to_canvas(core: *mach.Core.Mod, pos: mach.Core.Position) Vec2 {
+pub fn windowToCanvas(core: *mach.Core.Mod, pos: mach.Core.Position) Vec2 {
     const window = core.state().main_window;
     const width:f32 = @floatFromInt(core.get(window, .width).?);
     const height:f32 = @floatFromInt(core.get(window, .height).?);

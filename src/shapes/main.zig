@@ -1,9 +1,9 @@
 //! Shapes module
-//! 
+//!
 //! Can draw various shapes, including: rectangles, lines, and circles.
-//! 
+//!
 //! Handles multiple pipelines.
-//! 
+//!
 const std = @import("std");
 const mach = @import("mach");
 const gpu = mach.gpu;
@@ -24,26 +24,25 @@ allocator: std.mem.Allocator,
 /// Which render pass should be used during .render
 render_pass: ?*gpu.RenderPassEncoder = null,
 
-
 pub const components = .{
-    .view_projection = .{ .type = math.Mat4x4, .description = ""},
-    .transform = .{ .type = Mat4x4, .description = "Shape transformation"},
-    .shader = .{ .type = *gpu.ShaderModule, .description = ""},
-    .blend_state = .{ .type = gpu.BlendState, .description = ""},
-    .bind_group_layout = .{ .type = *gpu.BindGroupLayout, .description = ""},
-    .bind_group = .{ .type = *gpu.BindGroup, .description = ""},
-    .color_target_state = .{ .type = gpu.ColorTargetState, .description = ""},
-    .fragment_state = .{ .type = gpu.FragmentState, .description = ""},
-    .layout = .{ .type = *gpu.PipelineLayout, .description = ""},
-    .num_shapes = .{ .type = u32, .description = ""},
+    .view_projection = .{ .type = math.Mat4x4, .description = "" },
+    .transform = .{ .type = Mat4x4, .description = "Shape transformation" },
+    .shader = .{ .type = *gpu.ShaderModule, .description = "" },
+    .blend_state = .{ .type = gpu.BlendState, .description = "" },
+    .bind_group_layout = .{ .type = *gpu.BindGroupLayout, .description = "" },
+    .bind_group = .{ .type = *gpu.BindGroup, .description = "" },
+    .color_target_state = .{ .type = gpu.ColorTargetState, .description = "" },
+    .fragment_state = .{ .type = gpu.FragmentState, .description = "" },
+    .layout = .{ .type = *gpu.PipelineLayout, .description = "" },
+    .num_shapes = .{ .type = u32, .description = "" },
 
     .shapes_pipeline = .{ .type = void },
     .rectangle = .{ .type = Rectangle },
     .color = .{ .type = Vec4 },
     .line = .{ .type = Line },
     .triangle = .{ .type = Triangle },
-//    .path         // .polygon
-//    .quadratic   .cubic
+    .path = .{ .type = Path },         // .polygon
+    //    .quadratic   .cubic
     .circle = .{ .type = Circle },
     .line_style = .{ .type = LineStyle },
     .fill_style = .{ .type = FillStyle },
@@ -93,18 +92,12 @@ pub fn rgb(r: anytype, g: anytype, b: anytype) Vec4 {
     if (@TypeOf(r) == @TypeOf(g) and @TypeOf(g) == @TypeOf(b)) {
         switch (@typeInfo(@TypeOf(r))) {
             .ComptimeInt, .Int => {
-                return vec4(
-                    @as(f32, @floatFromInt(r)) / 255.0,
-                    @as(f32, @floatFromInt(g)) / 255.0,
-                    @as(f32, @floatFromInt(b)) / 255.0,
-                    1.0
-                );
-            },   
+                return vec4(@as(f32, @floatFromInt(r)) / 255.0, @as(f32, @floatFromInt(g)) / 255.0, @as(f32, @floatFromInt(b)) / 255.0, 1.0);
+            },
             .ComptimeFloat, .Float => {
                 return vec4(r, g, b, 1.0);
             },
-            else =>
-            {
+            else => {
                 @compileError("r,g,b need to be Int or Float");
             },
         }
@@ -129,9 +122,9 @@ pub const LineStyle = struct {
 };
 
 pub const Canvas = struct {
-    entities: *mach.Entities.Mod, 
-    shapes: *Mod, 
-    canvas: mach.EntityID, 
+    entities: *mach.Entities.Mod,
+    shapes: *Mod,
+    canvas: mach.EntityID,
     line_style: LineStyle,
     fill_style: FillStyle,
 };
@@ -140,22 +133,20 @@ pub const Canvas = struct {
 
 // Function interface
 pub fn drawRect(
-    canvas: *Canvas,
-    x: f32, 
-    y: f32, 
-    width: f32, 
+    canvas: *const Canvas,
+    x: f32,
+    y: f32,
+    width: f32,
     height: f32,
     // color: Vec4    Optionally override canvas state?
 ) !mach.EntityID {
     const rect = try canvas.entities.new();
-    try canvas.shapes.set(rect, .pipeline, canvas.canvas); 
+    try canvas.shapes.set(rect, .pipeline, canvas.canvas);
     try canvas.shapes.set(rect, .transform, Mat4x4.translate(vec3(0.0, 0.0, 0.0)));
-    try canvas.shapes.set(rect, .rectangle, 
-        .{ 
-            .center = vec2(x, y),
-            .size = vec2(width, height),
-        }
-    );
+    try canvas.shapes.set(rect, .rectangle, .{
+        .center = vec2(x, y),
+        .size = vec2(width, height),
+    });
     try canvas.shapes.set(rect, .line_style, canvas.line_style);
     try canvas.shapes.set(rect, .fill_style, canvas.fill_style);
     return rect;
@@ -163,21 +154,16 @@ pub fn drawRect(
 
 pub fn drawCircle(
     canvas: *Canvas,
-    x: f32, 
-    y: f32, 
-    width: f32, 
+    x: f32,
+    y: f32,
+    width: f32,
     height: f32,
     //color: Vec4
 ) !mach.EntityID {
     const circle = try canvas.entities.new();
-    try canvas.shapes.set(circle, .pipeline, canvas.canvas); 
+    try canvas.shapes.set(circle, .pipeline, canvas.canvas);
     try canvas.shapes.set(circle, .transform, Mat4x4.translate(vec3(0.0, 0.0, 0.0)));
-    try canvas.shapes.set(circle, .circle, 
-        .{ 
-            .center = vec2(x, y),
-            .size = vec2(width, height)
-        }
-    );
+    try canvas.shapes.set(circle, .circle, .{ .center = vec2(x, y), .size = vec2(width, height) });
     try canvas.shapes.set(circle, .line_style, canvas.line_style);
     try canvas.shapes.set(circle, .fill_style, canvas.fill_style);
     return circle;
@@ -185,52 +171,64 @@ pub fn drawCircle(
 
 pub fn drawLine(
     canvas: *Canvas,
-    x0: f32, 
-    y0: f32, 
+    x0: f32,
+    y0: f32,
     x1: f32,
     y1: f32,
 ) !mach.EntityID {
     const line = try canvas.entities.new();
-    try canvas.shapes.set(line, .pipeline, canvas.canvas); 
+    try canvas.shapes.set(line, .pipeline, canvas.canvas);
     try canvas.shapes.set(line, .transform, Mat4x4.translate(vec3(0.0, 0.0, 0.0)));
-    try canvas.shapes.set(line, .line, 
-        .{ 
-            .start = vec2(x0, y0),
-            .finish = vec2(x1, y1),
-        }
-    );
+    try canvas.shapes.set(line, .line, .{
+        .start = vec2(x0, y0),
+        .finish = vec2(x1, y1),
+    });
     try canvas.shapes.set(line, .line_style, canvas.line_style);
-    //try canvas.shapes.set(line, .fill_style, canvas.fill_style);
+    try canvas.shapes.set(line, .fill_style, canvas.fill_style); // Included for consistency for other shapes.
 
     return line;
 }
 
 pub fn drawTriangle(
-    canvas: *Canvas,
-    x0: f32, 
-    y0: f32, 
+    canvas: *const Canvas,
+    x0: f32,
+    y0: f32,
     x1: f32,
     y1: f32,
     x2: f32,
     y2: f32,
 ) !mach.EntityID {
     const triangle = try canvas.entities.new();
-    try canvas.shapes.set(triangle, .triangle_pipeline, canvas.canvas); 
+    try canvas.shapes.set(triangle, .triangle_pipeline, canvas.canvas);
     try canvas.shapes.set(triangle, .transform, Mat4x4.translate(vec3(0.0, 0.0, 0.0)));
-    try canvas.shapes.set(triangle, .triangle, 
-        .{ 
-            .p0 = vec4(x0, y0, 0.0, 1.0),
-            .p1 = vec4(x1, y1, 0.0, 1.0),
-            .p2 = vec4(x2, y2, 0.0, 1.0),
-        }
-    );
+    try canvas.shapes.set(triangle, .triangle, .{
+        .p0 = vec4(x0, y0, 0.0, 1.0),
+        .p1 = vec4(x1, y1, 0.0, 1.0),
+        .p2 = vec4(x2, y2, 0.0, 1.0),
+    });
     try canvas.shapes.set(triangle, .line_style, canvas.line_style);
     try canvas.shapes.set(triangle, .fill_style, canvas.fill_style);
 
     return triangle;
 }
 
-// drawPolygon
+pub fn drawPolygon(
+    canvas: *const Canvas,
+    vertices: []Vec2,
+) !mach.EntityID {
+    // TODO : add support for polygon fill
+    const polygon = try canvas.entities.new();
+    try canvas.shapes.set(polygon, .pipeline, canvas.canvas);
+    try canvas.shapes.set(polygon, .transform, Mat4x4.translate(vec3(0.0, 0.0, 0.0)));
+    try canvas.shapes.set(polygon, .path, .{.vertices = vertices, .close = true});
+    try canvas.shapes.set(polygon, .line_style, canvas.line_style);
+    try canvas.shapes.set(polygon, .fill_style, canvas.fill_style);
+
+    return polygon;
+}
+
+// drawPath, quadratic, cubic, ...
+// groups
 
 pub const name = .shapes; // The main app has to be named .app
 pub const Mod = mach.Mod(@This());
@@ -263,6 +261,11 @@ pub const Triangle = struct {
     p0: Vec4,
     p1: Vec4,
     p2: Vec4,
+};
+
+pub const Path = struct {
+    vertices: []Vec2,
+    close: bool = true,
 };
 
 pub const Color = struct {
@@ -343,10 +346,7 @@ fn init(self: *Mod) void {
     });
 }
 
-fn deinit(
-    self: *Mod,
-    entities: *mach.Entities.Mod
-) !void {
+fn deinit(self: *Mod, entities: *mach.Entities.Mod) !void {
     _ = self;
 
     {
@@ -373,14 +373,14 @@ fn deinit(
 }
 
 fn updateTriangles(
-    entities: *mach.Entities.Mod, 
-    core: *mach.Core.Mod, 
+    entities: *mach.Entities.Mod,
+    core: *mach.Core.Mod,
 ) !void {
     var q = try entities.query(.{
-         .ids = mach.Entities.Mod.read(.id),
-         .shape_pipelines = Mod.read(.shapes_pipeline),
-         .built_pipelines = Mod.read(.built_triangle),
-         .num_shapes = Mod.write(.num_shapes),
+        .ids = mach.Entities.Mod.read(.id),
+        .shape_pipelines = Mod.read(.shapes_pipeline),
+        .built_pipelines = Mod.read(.built_triangle),
+        .num_shapes = Mod.write(.num_shapes),
     });
     while (q.next()) |v| {
         for (v.ids, v.built_pipelines, v.num_shapes) |pipeline_id, built, *num_shapes| {
@@ -399,6 +399,7 @@ fn updateTriangles(
                     _ = shape_id;
                     _ = line_style;
                     if (pipeline_id == triangle_pipeline_id) {
+                        //std.debug.print("Update triangles {} {}\n", .{num_shapes.*, fill_style.color});
                         // TODO apply transform
                         _ = transform;
                         //_ = triangle;
@@ -415,16 +416,16 @@ fn updateTriangles(
                         num_shapes.* += 1;
                     }
                 }
-            }                
+            }
 
             if (num_shapes.* > 0) {
                 const device = core.state().device;
                 const label = @tagName(name) ++ ".updateTriangles";
                 const encoder = device.createCommandEncoder(&.{ .label = label });
                 defer encoder.release();
-                encoder.writeBuffer(built.vertices, 0, cp_vertices[0..num_shapes.* * 3 * 2]);
+                encoder.writeBuffer(built.vertices, 0, cp_vertices[0 .. num_shapes.* * 3 * 2]);
 
-                var command = encoder.finish(&.{ .label = label });  // Encoder leaks if finish not called
+                var command = encoder.finish(&.{ .label = label }); // Encoder leaks if finish not called
                 defer command.release();
                 core.state().queue.submit(&[_]*gpu.CommandBuffer{command});
             }
@@ -434,18 +435,18 @@ fn updateTriangles(
 
 fn updateShapes(
     self: *Mod,
-    entities: *mach.Entities.Mod, 
-    core: *mach.Core.Mod, 
+    entities: *mach.Entities.Mod,
+    core: *mach.Core.Mod,
 ) !void {
     _ = self;
 
     try updateTriangles(entities, core);
 
     var q = try entities.query(.{
-         .ids = mach.Entities.Mod.read(.id),
-         .shape_pipelines = Mod.read(.shapes_pipeline),
-         .built_pipelines = Mod.read(.built),
-         .num_shapes = Mod.write(.num_shapes),
+        .ids = mach.Entities.Mod.read(.id),
+        .shape_pipelines = Mod.read(.shapes_pipeline),
+        .built_pipelines = Mod.read(.built),
+        .num_shapes = Mod.write(.num_shapes),
     });
     while (q.next()) |v| {
         for (v.ids, v.built_pipelines, v.num_shapes) |pipeline_id, built, *num_shapes| {
@@ -466,21 +467,21 @@ fn updateShapes(
                             cp_transforms[num_shapes.*] = transform;
                             cp_center[num_shapes.*] = rectangle.center;
                             cp_size[num_shapes.*] = rectangle.size;
-                            cp_uint_params[num_shapes.*] = 
-                            .{
-                                .param1 = [4]u32{@intFromEnum(ShapeType.rect), 0, 0, 0},
+                            cp_uint_params[num_shapes.*] =
+                                .{
+                                .param1 = [4]u32{ @intFromEnum(ShapeType.rect), 0, 0, 0 },
                             };
-                            cp_float_params[num_shapes.*] = 
-                            .{
+                            cp_float_params[num_shapes.*] =
+                                .{
                                 .line_color = line_style.color,
                                 .fill_color = fill_style.color,
                                 .param3 = vec4(line_style.width, 0.0, 0.0, 0.0),
                                 .gradient_end_color = vec4(0.0, 0.0, 0.0, 0.0),
-                            };                      
+                            };
                             num_shapes.* += 1;
                         }
                     }
-                }                
+                }
             }
             {
                 var sq = try entities.query(.{
@@ -496,18 +497,18 @@ fn updateShapes(
                         _ = shape_id;
                         if (pipeline_id == shape_pipeline_id) {
                             cp_transforms[num_shapes.*] = transform;
-                            cp_center[num_shapes.*] =  circle.center;
+                            cp_center[num_shapes.*] = circle.center;
                             cp_size[num_shapes.*] = circle.size;
                             cp_uint_params[num_shapes.*] = .{
-                                .param1 = [4]u32{@intFromEnum(ShapeType.circle), 0, 0, 0},
+                                .param1 = [4]u32{ @intFromEnum(ShapeType.circle), 0, 0, 0 },
                             };
-                            cp_float_params[num_shapes.*] = 
-                            .{
+                            cp_float_params[num_shapes.*] =
+                                .{
                                 .line_color = line_style.color,
                                 .fill_color = fill_style.color,
                                 .param3 = vec4(line_style.width, 0.0, 0.0, 0.0),
                                 .gradient_end_color = vec4(0.0, 0.0, 0.0, 0.0),
-                            };                      
+                            };
                             num_shapes.* += 1;
                         }
                     }
@@ -526,20 +527,73 @@ fn updateShapes(
                         _ = shape_id;
                         if (pipeline_id == shape_pipeline_id) {
                             cp_transforms[num_shapes.*] = transform;
-                            cp_center[num_shapes.*] =  line.start;
+                            cp_center[num_shapes.*] = line.start;
                             cp_size[num_shapes.*] = line.finish;
-                            cp_uint_params[num_shapes.*] = 
-                            .{
-                                .param1 = [4]u32{@intFromEnum(ShapeType.line), 0, 0, 0},
+                            cp_uint_params[num_shapes.*] =
+                                .{
+                                .param1 = [4]u32{ @intFromEnum(ShapeType.line), 0, 0, 0 },
                             };
-                            cp_float_params[num_shapes.*] = 
-                            .{
+                            cp_float_params[num_shapes.*] =
+                                .{
                                 .line_color = line_style.color,
                                 .fill_color = col(.Black),
                                 .param3 = vec4(line_style.width, 0.0, 0.0, 0.0),
                                 .gradient_end_color = vec4(0.0, 0.0, 0.0, 0.0),
-                            };                      
+                            };
                             num_shapes.* += 1;
+                        }
+                    }
+                }
+            }
+
+            {
+                var sq = try entities.query(.{
+                    .ids = mach.Entities.Mod.read(.id),
+                    .shape_pipelines = Mod.read(.pipeline),
+                    .transforms = Mod.read(.transform),
+                    .paths = Mod.read(.path),
+                    .line_style = Mod.read(.line_style),
+                });
+                while (sq.next()) |w| {
+                    for (w.ids, w.shape_pipelines, w.transforms, w.paths, w.line_style) |shape_id, shape_pipeline_id, transform, path, line_style| {
+                        _ = shape_id;
+                        if (pipeline_id == shape_pipeline_id) {
+                            if (path.vertices.len == 0) { continue; }
+
+                            const first_p = path.vertices[0];
+                            var prev_p = first_p;
+                            for (path.vertices[1..]) |p| {
+                                // TODO : refactor into an add line function
+                                cp_transforms[num_shapes.*] = transform;
+                                cp_center[num_shapes.*] = prev_p;
+                                cp_size[num_shapes.*] = p;
+                                cp_uint_params[num_shapes.*] = .{
+                                    .param1 = [4]u32{ @intFromEnum(ShapeType.line), 0, 0, 0 },
+                                };
+                                cp_float_params[num_shapes.*] = .{
+                                    .line_color = line_style.color,
+                                    .fill_color = col(.Black),
+                                    .param3 = vec4(line_style.width, 0.0, 0.0, 0.0),
+                                    .gradient_end_color = vec4(0.0, 0.0, 0.0, 0.0),
+                                };
+                                num_shapes.* += 1;
+                                prev_p = p;
+                            }
+                            if (path.close) {
+                                cp_transforms[num_shapes.*] = transform;
+                                cp_center[num_shapes.*] = prev_p;
+                                cp_size[num_shapes.*] = first_p;
+                                cp_uint_params[num_shapes.*] = .{
+                                    .param1 = [4]u32{ @intFromEnum(ShapeType.line), 0, 0, 0 },
+                                };
+                                cp_float_params[num_shapes.*] = .{
+                                    .line_color = line_style.color,
+                                    .fill_color = col(.Black),
+                                    .param3 = vec4(line_style.width, 0.0, 0.0, 0.0),
+                                    .gradient_end_color = vec4(0.0, 0.0, 0.0, 0.0),
+                                };
+                                num_shapes.* += 1;                                
+                            }
                         }
                     }
                 }
@@ -557,7 +611,7 @@ fn updateShapes(
                 encoder.writeBuffer(built.uint_params, 0, cp_uint_params[0..num_shapes.*]);
                 encoder.writeBuffer(built.float_params, 0, cp_float_params[0..num_shapes.*]);
 
-                var command = encoder.finish(&.{ .label = label });  // Encoder leaks if finish not called
+                var command = encoder.finish(&.{ .label = label }); // Encoder leaks if finish not called
                 defer command.release();
                 core.state().queue.submit(&[_]*gpu.CommandBuffer{command});
             }
@@ -568,9 +622,9 @@ fn updateShapes(
 /// Update the pipeline buffers with the shape data.
 fn update(
     self: *Mod,
-    entities: *mach.Entities.Mod, 
-    core: *mach.Core.Mod, 
-) !void {    
+    entities: *mach.Entities.Mod,
+    core: *mach.Core.Mod,
+) !void {
     try deinit(self, entities);
 
     {
@@ -604,7 +658,7 @@ fn buildTrianglePipeline(
     self: *Mod,
     core: *mach.Core.Mod,
     pipeline_id: mach.EntityID,
-) !void {    
+) !void {
     const opt_shader = self.get(pipeline_id, .shader);
     const opt_blend_state = self.get(pipeline_id, .blend_state);
     const opt_bind_group_layout = self.get(pipeline_id, .bind_group_layout);
@@ -625,7 +679,7 @@ fn buildTrianglePipeline(
         .array_stride = 32, // pos, col
         .step_mode = .vertex,
         .attributes = &vertex_attributes,
-    });    
+    });
 
     const vertices = device.createBuffer(&.{
         .label = label ++ " vertices",
@@ -861,24 +915,11 @@ fn buildPipeline(
         },
     });
 
-    const built = BuiltPipeline{
-        .render = render_pipeline,
-        .bind_group = bind_group,
-        .uniforms = uniforms,
-        .transforms = transforms,
-        .positions = positions,
-        .sizes = sizes,
-        .uint_params = uint_params,
-        .float_params = float_params
-    };
+    const built = BuiltPipeline{ .render = render_pipeline, .bind_group = bind_group, .uniforms = uniforms, .transforms = transforms, .positions = positions, .sizes = sizes, .uint_params = uint_params, .float_params = float_params };
     try self.set(pipeline_id, .built, built);
     try self.set(pipeline_id, .num_shapes, 0);
 }
-fn preRender(
-    self: *Mod,
-    core: *mach.Core.Mod,
-    entities: *mach.Entities.Mod
-) !void {
+fn preRender(self: *Mod, core: *mach.Core.Mod, entities: *mach.Entities.Mod) !void {
     const label = @tagName(name) ++ ".preRender";
     const encoder = core.state().device.createCommandEncoder(&.{ .label = label });
     defer encoder.release();
@@ -939,18 +980,14 @@ fn preRender(
                 encoder.writeBuffer(built.uniforms, 0, &[_]Uniforms{uniforms});
             }
         }
-
     }
 
     var command = encoder.finish(&.{ .label = label });
     defer command.release();
-    core.state().queue.submit(&[_]*gpu.CommandBuffer{command});    
+    core.state().queue.submit(&[_]*gpu.CommandBuffer{command});
 }
 
-fn render(
-    self: *Mod,
-    entities: *mach.Entities.Mod
-) !void {
+fn render(self: *Mod, entities: *mach.Entities.Mod) !void {
     const render_pass = if (self.state().render_pass) |rp| rp else std.debug.panic("shapes.state().render_pass must be specified", .{});
     self.state().render_pass = null;
 
@@ -963,14 +1000,14 @@ fn render(
         while (q.next()) |v| {
             for (v.ids, v.built_pipelines) |pipeline_id, built| {
                 // Draw the triangles
-                const num_shapes = self.get(pipeline_id, .num_shapes).?*3;
+                const num_shapes = self.get(pipeline_id, .num_shapes).? * 3;
                 render_pass.setPipeline(built.render);
-                render_pass.setVertexBuffer(0, built.vertices, 0, num_shapes * 3 * (4*4 + 4*4));
+                render_pass.setVertexBuffer(0, built.vertices, 0, num_shapes * 3 * (4 * 4 + 4 * 4));
                 render_pass.setBindGroup(0, built.bind_group, &.{});
                 render_pass.draw(num_shapes, 1, 0, 0);
             }
         }
-    }   
+    }
     // Render shapes
     {
         var q = try entities.query(.{
@@ -989,7 +1026,7 @@ fn render(
     }
 }
 
-/// Named colors using the HTML color names 
+/// Named colors using the HTML color names
 /// Reference: https://htmlcolorcodes.com/color-names/
 const NamedColor = enum(u32) {
     // Red
@@ -1075,8 +1112,8 @@ const NamedColor = enum(u32) {
     LightSeaGreen = 0x20B2AA,
     DarkCyan = 0x008B8B,
     Teal = 0x008080,
-    
-    // Blue    
+
+    // Blue
     //Aqua = 0x00FFFF,
     Cyan = 0x00FFFF,
     LightCyan = 0xE0FFFF,
@@ -1120,7 +1157,7 @@ const NamedColor = enum(u32) {
     SaddleBrown = 0x8B4513,
     Sienna = 0xA0522D,
     Brown = 0xA52A2A,
-    Maroon = 0x800000,    
+    Maroon = 0x800000,
 
     // White
     White = 0xFFFFFF,

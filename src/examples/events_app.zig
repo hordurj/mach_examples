@@ -566,7 +566,7 @@ fn tick_input(
                 }
             },
             .mouse_press => |ev| {
-                const pos = util.window_to_canvas(core, ev.pos);
+                const pos = util.windowToCanvas(core, ev.pos);
                 try self.state().pressed_mouse.put(ev.button, {});
                 try update_modifiers(&self.state().mouse_modifiers, ev.mods);
                 try util.updateText(text, self.state().mouse_pos_press_label, "{d:.0} , {d:.0}", .{pos.x(), pos.y()});
@@ -574,13 +574,13 @@ fn tick_input(
 
             },
             .mouse_release => |ev| {
-                const pos = util.window_to_canvas(core, ev.pos);
+                const pos = util.windowToCanvas(core, ev.pos);
                 _ = self.state().pressed_mouse.remove(ev.button);
                 try update_modifiers(&self.state().mouse_modifiers, ev.mods);
                 try util.updateText(text, self.state().mouse_pos_release_label, "{d:.0} , {d:.0}", .{pos.x(), pos.y()});
             },
             .mouse_motion => |ev| {
-                const pos = util.window_to_canvas(core, ev.pos);
+                const pos = util.windowToCanvas(core, ev.pos);
                 // TOOD (hj) : option to display both raw mouse coords and mouse in app/canvas coords
 
                 try util.updateText(text, self.state().mouse_pos_label, "{d:.0} , {d:.0}", .{pos.x(), pos.y()});

@@ -721,18 +721,17 @@ fn render(
             while (q.next()) |v| {
                 for (v.ids, v.positions, v.colliders, v.line_styles, v.fill_styles, 
                         v.default_styles, v.hover_styles, v.selected_styles) 
-                        |obj_id, *position, *collider, *line_style, *fill_style, 
+                        |obj_id, *position_a, *collider_a, *line_style, *fill_style, 
                         default_style, hover_style, selected_style| 
                 {
-                    updateColliderPosition(position, collider);
+                    updateColliderPosition(position_a, collider_a);
 
                     // TODO: only need to change styles if mode is changing (selected, hover, default, ...)
                     if (obj_id == self.state().selected_object) {
                         line_style.* = selected_style.line_style;
                         fill_style.* = selected_style.fill_style;
-                        continue ;
                     }
-                    if (collides(&point, collider)) {
+                    if (collides(&point, collider_a)) {
                         line_style.* = hover_style.line_style;
                         fill_style.* = hover_style.fill_style;
                     } else {
@@ -743,32 +742,43 @@ fn render(
                     // Check if object collides with another collider
                     var q2 = try entities.query(.{
                         .ids = mach.Entities.Mod.read(.id),
-                        .colliders = Mod.read(.collider),
+                        .positions = Mod.write(.position),
+                        .colliders = Mod.write(.collider),
                     });
                     var collision_detected = false;
                     while (q2.next()) |v2| {
-                        for (v2.ids, v2.colliders) |id_b, collider_b| {
-                            if (obj_id != id_b and collides(collider, &collider_b)) {
+                        for (v2.ids, v2.positions, v2.colliders) |id_b, *position_b, *collider_b| {
+                            if (obj_id != id_b and self.state().selected_object != id_b and collides(collider_a, collider_b)) {
                                 collision_detected = true;
                                 // Get collision information
-                                const collision_report = computeCollisionReport(obj_id, id_b, collider, &collider_b);
+                                const collision_report = computeCollisionReport(obj_id, id_b, collider_a, collider_b);
 
                                 // Show collision resolution
                                 try showCollisionReport(self, entities, shapes, &canvas,&collision_report);
 
-                                const pos_a = getColliderPosition(collider);
-                                const pos_b = getColliderPosition(&collider_b);
+                                const pos_a = getColliderPosition(collider_a);
+                                const pos_b = getColliderPosition(collider_b);
 
                                 std.debug.print("Position A: {d:.1}, {d:.1}  Position B: {d:.1}, {d:.1}\n", .{pos_a.x(), pos_a.y(), pos_b.x(), pos_b.y()});
                                 // Resolve collision if enabled
+                                if (collision_report.contact_point_1_on_a) |_| {
+                                    var cr = collision_report;
+                                    if (self.state().selected_object != obj_id) {
+                                        cr.depth *= 0.5;
+                                        position_a.* = resolveCollision(position_a.*, &cr);
+                                        updateColliderPosition(position_a, collider_a);
+                                    }
+                                    cr.depth *= -1.0;
+                                    position_b.* = resolveCollision(position_b.*, &cr);
+                                    updateColliderPosition(position_b, collider_b);
 
-                                position.* = resolveCollision(position.*, &collision_report);
-                                self.state().scene_update_required = true;
+                                    self.state().scene_update_required = true;
+                                }
 
                                 // Draw overlap if both are rect                                
-                                switch (collider.*) {
+                                switch (collider_a.*) {
                                     .rectangle => |rect_a| {
-                                        switch (collider_b) {
+                                        switch (collider_b.*) {
                                             .rectangle => |rect_b| {
                                                 if (rect_a.collisionRect(rect_b)) |collision_rect| {
                                                     const rect = try (drawRect(&canvas, 
@@ -796,6 +806,8 @@ fn render(
             }
         }
 
+        //try updateShapePositions(entities);
+        //updateShapePositions(entities: *mach.Entities.Mod);
         // Update circles
         {
             var q = try entities.query(.{

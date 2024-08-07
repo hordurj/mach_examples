@@ -14,4 +14,7 @@ pub fn main() !void {
     } else {
         std.debug.print("no\n", .{});
     }
+
+    const c = .{2.0, 4.0};
+    std.debug.print("{}\n", .{@TypeOf(c)});
 }

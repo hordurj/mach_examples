@@ -12,6 +12,12 @@ const Vec4 = math.Vec4;
 const Mat4x4 = math.Mat4x4;
 const collision = math.collision;
 const gpu = mach.gpu;
+
+const cex = @import("collision_ex");
+const ColliderType = cex.ColliderType;
+const Collider = cex.Collider;
+const collides = cex.collides;
+
 const util = @import("../util.zig");
 const shp = @import("../shapes/main.zig");
 const renderer = @import("../renderer/main.zig");
@@ -72,23 +78,6 @@ const Styles = struct {
     selected_style: Style,
     hover_style: Style,
     default_style: Style,
-};
-
-const ColliderType = enum {
-    rectangle,
-    circle,
-    point,
-    triangle,
-    polygon,
-    line
-};
-const Collider = union(ColliderType) {
-    rectangle: collision.Rectangle,
-    circle: collision.Circle,
-    point: collision.Point,
-    triangle: []Vec2,
-    polygon: []Vec2,
-    line: collision.Line
 };
 
 //**************************************
@@ -208,18 +197,7 @@ fn update(
     if (core.state().should_close) {
         return;
     }
-
-    // Clear all marker entitites
-    var q = try entities.query(.{
-        .ids = mach.Entities.Mod.read(.id),
-        .markers = Mod.read(.marker),
-    });
-    while (q.next()) |v| {
-        for (v.ids) |id| {
-            try entities.remove(id);
-        }
-    }
-
+    _ = entities;
     self.schedule(.input);
     renderer_mod.schedule(.begin_frame);
     self.schedule(.render);
@@ -341,12 +319,351 @@ fn input(self: *Mod, core: *mach.Core.Mod, entities: *mach.Entities.Mod, shapes:
                     try self.set(obj_id, .position, mpos.sub(&self.state().selected_pick_point));
                     self.state().scene_update_required = true;
                 }
-
                 // TODO: check if hover state changes - enter / exit
             },
             .close => core.schedule(.exit),
             else => {},
         }
+    }
+}
+
+const CollisionReport = struct {
+    id_a: mach.EntityID = undefined,
+    id_b: mach.EntityID = undefined,
+    normal: Vec2 = undefined,
+    depth: f32 = undefined,
+    contact_point_1_on_a: ?Vec2 = null,
+    contact_point_2_on_a: ?Vec2 = null,
+//    contact_point_1_on_b: ?Vec2,
+//    contact_point_2_on_b: ?Vec2,
+};
+
+// circlecircle
+// circlepolygon
+// polygonpolygon
+
+fn circlePolygonCollisionReport(circle_a: *const collision.Circle, polygon_b: []Vec2) CollisionReport {
+    var normal = vec2(0.0, 0.0);
+    var depth: f32 = 0.0;
+    var cp1_a: ?Vec2 = null;
+    const cp2_a: ?Vec2 = null;
+
+    var v0 = polygon_b[polygon_b.len-1];
+    var min_result = struct {
+        n: Vec2,
+        d: f32,
+        i: usize
+    }{
+        .n = vec2(0.0, 0.0),
+        .d = std.math.floatMax(f32),
+        .i = undefined
+    };
+    var closest_vertex = struct {
+        v: Vec2 = undefined,
+        d: f32 = std.math.floatMax(f32),
+        i: usize = undefined,
+    }{};
+
+    for (polygon_b[0..], 0..) |v1, i| {
+        const edge = v1.sub(&v0);
+        const n = vec2(edge.y(), -edge.x()).normalize(0.0); 
+        const vc = circle_a.pos.sub(&v0);
+        const d = vc.dot(&n);
+        if (vc.len() < closest_vertex.d) {
+            closest_vertex.v = v0;
+            closest_vertex.d = vc.len();
+            closest_vertex.i = i;
+        }
+        std.debug.print("Check vertex: idx {}: vc.len: {d:.1}  d: {d:.1}\n", .{i, vc.len(), d});
+
+        v0 = v1;
+        if (d > circle_a.radius) {
+            // Circle does not collide with this edge
+            std.debug.print("No intersection\n", .{});
+            return .{};
+//            continue;
+        }
+
+        const current_depth = circle_a.radius - d;
+        if (current_depth < min_result.d) {
+            min_result.d = current_depth;
+            min_result.n = n;
+            min_result.i = i;
+        }
+    }
+
+    // Check circle to closest point axis
+    //is_overlap: 
+    {
+        v0 = closest_vertex.v;
+        const n = circle_a.pos.sub(&v0).normalize(0.0); 
+        const minmax_b = cex.minmaxProjectionDistance(n, v0, polygon_b);                        
+        
+        // Circle projects to +- radius
+        const vc = circle_a.pos.sub(&v0);
+        const d = vc.dot(&n);
+        const minmax_a = vec2(d - circle_a.radius, d + circle_a.radius);
+
+        if ((minmax_a.x() > minmax_b.y()) or (minmax_a.y() < minmax_b.x())) {
+
+            std.debug.print("Vertex - No intersection\n", .{});
+            return .{};
+            //break :is_overlap;
+        }
+
+        const current_depth = @min(minmax_a.y() - minmax_b.x(), minmax_b.y() - minmax_a.x());
+        std.debug.print("Vertex: {} - d: {d:.1} radius: {d:.1} Current depth: {d:.1}  min_depth: {d:.1} n: {d:.1}, {d:.1} i: {} \n", 
+            .{closest_vertex.i, d, circle_a.radius, current_depth, min_result.d, min_result.n.x(), min_result.n.y(), min_result.i});
+
+        if (current_depth <= min_result.d) {
+            std.debug.print("Use vertex: depth: {d:.1} normal: [{d:.1} {d:.1}]\n", .{current_depth, n.x(), n.y()});
+            min_result.d = current_depth;
+            min_result.n = n; //n.mulScalar(-1.0);
+        }
+    }
+
+    depth = -min_result.d;
+    normal = min_result.n.mulScalar(-1.0);  
+    cp1_a = circle_a.pos.add(&normal.mulScalar(circle_a.radius)); 
+
+    return CollisionReport{
+        .id_a = undefined,
+        .id_b = undefined,
+        .normal = normal,
+        .depth = depth,
+        .contact_point_1_on_a = cp1_a,
+        .contact_point_2_on_a = cp2_a,
+//        .contact_point_1_on_b = cp1_b,
+//        .contact_point_2_on_b = cp2_b,
+    };
+}
+
+pub fn minAndVertexProjectionDistance(n: Vec2, v0: Vec2, v: []const Vec2) struct {f32, Vec2} {
+    var min_d = n.dot(&v[0].sub(&v0));
+    var min_v = v[0];
+    for (v[1..]) |vb| {
+        const d = n.dot(&vb.sub(&v0));
+        if (d < min_d) {
+            min_d = d;
+            min_v = vb;
+        }
+    }
+    return .{min_d, min_v};
+}
+
+fn polygonCollisionReport(polygon_a: []Vec2, polygon_b: []Vec2) CollisionReport {
+    var normal = vec2(0.0, 0.0);
+    var depth: f32 = 0.0;
+    var cp1_a: ?Vec2 = null;
+    const cp2_a: ?Vec2 = null;
+
+    var v0 = polygon_b[polygon_b.len-1];
+    var min_result = struct {
+        n: Vec2,
+        v: Vec2,
+        d: f32,
+        i: usize,
+        a: bool
+    }{
+        .n = vec2(0.0, 0.0),
+        .d = std.math.floatMax(f32),
+        .i = undefined,
+        .v = vec2(0.0, 0.0),
+        .a = false,
+    };
+
+    for (polygon_b[0..], 0..) |v1, i| {
+        const edge = v1.sub(&v0);
+        const n = vec2(edge.y(), -edge.x()).normalize(0.0); 
+        const min_a_v = minAndVertexProjectionDistance(n, v0, polygon_a);
+        v0 = v1;
+
+        if (min_a_v[0] > 0.0) {
+            // no intersection with this edge
+            continue ;
+        }
+
+        const current_depth = -min_a_v[0];
+        if (current_depth < min_result.d) {
+            min_result.d = current_depth;
+            min_result.n = n;
+            min_result.i = i;
+            min_result.v = min_a_v[1];
+            min_result.a = true;
+        }
+    }
+
+    v0 = polygon_a[polygon_a.len-1];
+    for (polygon_a[0..], 0..) |v1, i| {
+        const edge = v1.sub(&v0);
+        const n = vec2(edge.y(), -edge.x()).normalize(0.0); 
+        const min_b_v = minAndVertexProjectionDistance(n, v0, polygon_b);
+        v0 = v1;
+
+        if (min_b_v[0] > 0.0) {
+            // no intersection with this edge
+            // continue ;
+
+            return .{};
+        }
+
+        const current_depth = -min_b_v[0];
+        if (current_depth < min_result.d) {
+            min_result.d = current_depth;
+            min_result.n = n;
+            min_result.i = i;
+            min_result.v = min_b_v[1];      
+            min_result.a = false;     
+        }
+    }
+
+    if (min_result.a) {
+        depth = min_result.d;
+        normal = min_result.n;  
+        cp1_a = min_result.v;  
+    } else {
+        depth = min_result.d;
+        normal = min_result.n.mulScalar(-1.0);  
+        cp1_a = min_result.v.add(&normal.mulScalar(-depth)); 
+    }
+
+    return CollisionReport{
+        .id_a = undefined,
+        .id_b = undefined,
+        .normal = normal,
+        .depth = depth,
+        .contact_point_1_on_a = cp1_a,
+        .contact_point_2_on_a = cp2_a,
+    };
+}
+fn computeCollisionReport(id_a: mach.EntityID, id_b: mach.EntityID, collider_a: *const Collider, collider_b: *const Collider) CollisionReport {
+    // Only support circle and polygon
+
+    var normal = vec2(0.0, 0.0);
+    var depth: f32 = 0.0;
+    var cp1_a: ?Vec2 = null;
+    const cp2_a: ?Vec2 = null;
+    switch (collider_a.*) {
+        .circle => |circle_a| {
+            switch (collider_b.*) {
+                .circle => |circle_b| {
+                    const delta = circle_b.pos.sub(&circle_a.pos);
+                    const distance = delta.len();
+                    depth = distance - circle_a.radius - circle_b.radius; 
+                    if (depth > 0.0) {
+                        return .{};
+                    }
+                    normal = delta.mulScalar(1.0 / distance);
+                    cp1_a = circle_a.pos.add(&normal.mulScalar(circle_a.radius));
+                },
+                .triangle, .polygon => |polygon_b| {
+                    std.debug.print("Circle / polygon\n" ,.{});
+                    const cr = circlePolygonCollisionReport(&circle_a, polygon_b);
+                    depth = cr.depth;
+                    normal = cr.normal;  
+                    cp1_a = cr.contact_point_1_on_a;  
+                },
+                else => {}
+            }
+        },
+        .triangle, .polygon => |polygon_a| {
+            switch (collider_b.*) {
+                .circle => |circle_b| {
+                    std.debug.print("Polygon / circle\n" ,.{});
+
+                    const cr = circlePolygonCollisionReport(&circle_b, polygon_a);
+                    depth = cr.depth;
+                    normal = cr.normal.mulScalar(-1.0);  
+                    if (cr.contact_point_1_on_a) |contact_point_1_on_a| {
+                        cp1_a = contact_point_1_on_a.add(&normal.mulScalar(-depth));  
+                    }
+                },
+                .triangle, .polygon => |polygon_b| {
+                    const cr = polygonCollisionReport(polygon_a, polygon_b);
+                    depth = cr.depth;
+                    normal = cr.normal;  
+                    cp1_a = cr.contact_point_1_on_a;  
+                },
+                else => {}            
+            }
+        },
+        else => {}
+    }
+
+    return CollisionReport{
+        .id_a = id_a,
+        .id_b = id_b,
+        .normal = normal,
+        .depth = depth,
+        .contact_point_1_on_a = cp1_a,
+        .contact_point_2_on_a = cp2_a,
+//        .contact_point_1_on_b = cp1_b,
+//        .contact_point_2_on_b = cp2_b,
+    };
+}
+
+fn showCollisionReport(self: *Mod, entities: *mach.Entities.Mod, shapes: *shp.Mod, canvas: *Canvas, collision_report: *const CollisionReport) !void {
+    _ = shapes;
+    _ = entities;
+
+    // Push style
+    const line_style = canvas.line_style;
+    const fill_style = canvas.fill_style;
+
+    if (collision_report.contact_point_1_on_a) |cp| {
+        // Draw contact point
+        canvas.line_style.width = 2;
+        const rect_id = try drawRect(canvas, cp.x(), cp.y(), 15.0, 15.0);
+        try self.set(rect_id, .marker, {});
+
+        // Draw line between
+        canvas.line_style.width = 1;
+        canvas.fill_style.color = vec4(0.0, 0.0, 0.0, 0.0);
+
+        const end_point = cp.add(&collision_report.normal.mulScalar(collision_report.depth));
+        const line_id = try drawLine(canvas, cp.x(), cp.y(), end_point.x(), end_point.y()); 
+        try self.set(line_id, .marker, {});
+    }
+
+    // Pop style
+    canvas.line_style = line_style;
+    canvas.fill_style = fill_style;
+} 
+
+fn resolveCollision(pos: Vec2, collision_report: *const CollisionReport) Vec2 {
+    std.debug.print("Resolve collision: depth: {d:.1} -- normal: {d:.1} {d:.1}\n", 
+        .{collision_report.depth, collision_report.normal.x(), collision_report.normal.y()});
+    return pos.add(&collision_report.normal.mulScalar(collision_report.depth));
+//fn resolveCollision(id_a: mach.EntityID, id_b: mach.EntityID, collision_report: *const CollisionReport) !void {
+//fn computeCollisionReport(id_a: mach.EntityID, id_b: mach.EntityID, collider_a: *const Collider, collider_b: *const Collider) CollisionReport {
+
+}
+
+fn getColliderPosition(collider: *const Collider) Vec2 {
+    switch (collider.*) {
+        .circle => |circle_collider| { return circle_collider.pos; },
+        .rectangle => |rectangle_collider| { return rectangle_collider.pos; },
+        .line => |line_collider| { return line_collider.start; },
+        .triangle, .polygon => |vertices| { return vertices[0]; },
+        else => { return vec2(0.0, 0.0); }
+    }
+}
+fn updateColliderPosition(position: *const Vec2, collider: *Collider) void {
+    switch (collider.*) {
+        .circle => |*circle_collider| { circle_collider.pos = position.*; },
+        .rectangle => |*rectangle_collider| { rectangle_collider.pos = position.*; },
+        .line => |*line_collider| { 
+            const delta = line_collider.end.sub(&line_collider.start);
+            line_collider.start = position.*; 
+            line_collider.end = line_collider.start.add(&delta); 
+        },
+        .triangle, .polygon => |*vertices| {
+            const delta = position.sub(&vertices.*[0]);
+            for (vertices.*) |*vertex| {
+                vertex.* = vertex.add(&delta);
+            }
+        },
+        else => {}
     }
 }
 fn render(
@@ -356,10 +673,23 @@ fn render(
     shapes: *shp.Mod,
     renderer_mod: *renderer.Mod,
 ) !void {
-    self.state().scene_update_required = true; // Always update for now.
+    //self.state().scene_update_required = true; // Always update for now.
 
     if (self.state().scene_update_required) {
         self.state().scene_update_required = false;
+
+        // Clear all marker entitites
+        {
+            var q = try entities.query(.{
+                .ids = mach.Entities.Mod.read(.id),
+                .markers = Mod.read(.marker),
+            });
+            while (q.next()) |v| {
+                for (v.ids) |id| {
+                    try entities.remove(id);
+                }
+            }
+        }
 
         const shapes_canvas = self.state().shapes_canvas;
         var canvas = Canvas{
@@ -380,7 +710,7 @@ fn render(
         {
             var q = try entities.query(.{
                 .ids = mach.Entities.Mod.read(.id),
-                .positions = Mod.read(.position),
+                .positions = Mod.write(.position),
                 .colliders = Mod.write(.collider),
                 .line_styles = shp.Mod.write(.line_style),
                 .fill_styles = shp.Mod.write(.fill_style),
@@ -391,25 +721,10 @@ fn render(
             while (q.next()) |v| {
                 for (v.ids, v.positions, v.colliders, v.line_styles, v.fill_styles, 
                         v.default_styles, v.hover_styles, v.selected_styles) 
-                        |obj_id, position, *collider, *line_style, *fill_style, 
+                        |obj_id, *position, *collider, *line_style, *fill_style, 
                         default_style, hover_style, selected_style| 
                 {
-                    switch (collider.*) {
-                        .circle => |*circle_collider| { circle_collider.pos = position; },
-                        .rectangle => |*rectangle_collider| { rectangle_collider.pos = position; },
-                        .line => |*line_collider| { 
-                            const delta = line_collider.end.sub(&line_collider.start);
-                            line_collider.start = position; 
-                            line_collider.end = line_collider.start.add(&delta); 
-                        },
-                        .triangle, .polygon => |*vertices| {
-                            const delta = position.sub(&vertices.*[0]);
-                            for (vertices.*) |*vertex| {
-                                vertex.* = vertex.add(&delta);
-                            }
-                        },
-                        else => {}
-                    }
+                    updateColliderPosition(position, collider);
 
                     // TODO: only need to change styles if mode is changing (selected, hover, default, ...)
                     if (obj_id == self.state().selected_object) {
@@ -435,7 +750,22 @@ fn render(
                         for (v2.ids, v2.colliders) |id_b, collider_b| {
                             if (obj_id != id_b and collides(collider, &collider_b)) {
                                 collision_detected = true;
+                                // Get collision information
+                                const collision_report = computeCollisionReport(obj_id, id_b, collider, &collider_b);
 
+                                // Show collision resolution
+                                try showCollisionReport(self, entities, shapes, &canvas,&collision_report);
+
+                                const pos_a = getColliderPosition(collider);
+                                const pos_b = getColliderPosition(&collider_b);
+
+                                std.debug.print("Position A: {d:.1}, {d:.1}  Position B: {d:.1}, {d:.1}\n", .{pos_a.x(), pos_a.y(), pos_b.x(), pos_b.y()});
+                                // Resolve collision if enabled
+
+                                position.* = resolveCollision(position.*, &collision_report);
+                                self.state().scene_update_required = true;
+
+                                // Draw overlap if both are rect                                
                                 switch (collider.*) {
                                     .rectangle => |rect_a| {
                                         switch (collider_b) {
@@ -459,7 +789,7 @@ fn render(
                         }
                     }
                     if (collision_detected) {
-                        fill_style.*.color = col(.Green);
+                        //fill_style.*.color = col(.Green);
                         line_style.*.color = col(.Purple);
                     }
                 }
@@ -579,200 +909,6 @@ fn endFrame(
 fn vec2FromPosition(pos: mach.Core.Position) Vec2 {
     return vec2(@floatCast(pos.x), @floatCast(pos.y));
 }
-
-/// Minimum distance of vn-v0 on n
-fn minProjectionDistance(n: Vec2, v0: Vec2, v: []const Vec2) f32 {
-    var min_d = n.dot(&v[0].sub(&v0));
-    for (v[1..]) |vb| {
-        min_d = @min(min_d, n.dot(&vb.sub(&v0)));
-    }
-    return min_d;
-}
-
-fn distanceToLineSegment(p: Vec2, a: Vec2, b: Vec2) f32 {
-    const pa = p.sub(&a);
-    const ab = b.sub(&a);
-    const l = ab.dot(&pa) / ab.len2();
-    const p_on_ab = ab.mulScalar(math.clamp(l, 0.0, 1.0)); 
-    return pa.sub(&p_on_ab).len();
-}
-
-/// Use SAT to determine if the two shapes intersect.
-/// if the number of vertices is greater than 2 it is assumed
-/// the shape is closed, otherwise with
-fn collideSat(va: []const Vec2, vb: []const Vec2, min_distance: f32) bool {
-    //std.debug.print("Collidesat\n", .{});
-
-    if (va.len < 2 or vb.len < 2) { return false; }  // Or panic?
-
-    var v0 = va[va.len-1];
-    for (va[0..]) |v1| {
-        const n = v1.sub(&v0).normalize(0.0); 
-        const d = minProjectionDistance(vec2(n.y(), -n.x()), v0, vb);
-        if (d > min_distance) { return false; }
-        v0 = v1;
-    }
-
-    v0 = vb[vb.len-1];
-    for (vb[0..]) |v1| {
-        const n = v1.sub(&v0).normalize(0.0);
-        const d = minProjectionDistance(vec2(n.y(), -n.x()), v0, va);
-        if (d > min_distance) { return false; }
-        v0 = v1;
-    }
-    return true;
-}
-fn verticesFromRect(rect: *const collision.Rectangle) [4]Vec2 {
-    // Pos is bottom left
-    return [_]Vec2{
-                rect.pos,
-                rect.pos.add(&vec2(rect.size.x(), 0.0)),
-                rect.pos.add(&vec2(rect.size.x(), rect.size.y())),
-                rect.pos.add(&vec2(0.0, rect.size.y())),
-    };
-}
-
-fn collideLine(line_a: *const collision.Line, collider_b: *const Collider) bool {
-    const va = [_]Vec2{line_a.start, line_a.end};
-
-    switch (collider_b.*) {
-        .circle => |circle_b| {
-            const d = distanceToLineSegment(circle_b.pos, line_a.start, line_a.end);
-            return (d <= circle_b.radius + line_a.threshold);
-        },
-        .rectangle => |rect_b| {
-            const vb = verticesFromRect(&rect_b);
-            return collideSat(&va, &vb, line_a.threshold);
-        },
-        .point => |point_b| {
-            _ = point_b;
-        },
-        .line => |line_b| {
-            const vb = [_]Vec2{line_b.start, line_b.end};
-            return collideSat(&va, &vb, line_b.threshold);
-        },
-        .triangle => |triangle_b| {
-            return collideSat(&va, triangle_b, 0.0);
-        },
-        .polygon=> |polygon_b| {
-            return collideSat(&va, polygon_b, 0.0);
-        },
-    }
-    return false;
-}
-
-fn collidePolygon(polygon_a: []Vec2, collider_b: *const Collider) bool {
-    const va = polygon_a;
-
-    switch (collider_b.*) {
-        .circle => |circle_b| {
-            const p = collision.Point{.pos = circle_b.pos};
-            if (p.collidesPoly(polygon_a)) {
-                return true;
-            }
-            var min_distance = std.math.floatMax(f32);
-            var v0 = va[va.len-1];
-            for (va[0..]) |v1| {
-                min_distance = @min(min_distance, distanceToLineSegment(circle_b.pos, v0, v1));
-                v0 = v1;
-            }
-            return min_distance <= circle_b.radius;
-
-        },
-        .rectangle => |rect_b| {
-            const vb = verticesFromRect(&rect_b);
-            return collideSat(va, &vb, 0.0);
-        },
-        .point => |point_b| {
-            return point_b.collidesPoly(polygon_a);
-        },
-        .line => |line_b| {
-            const vb = [_]Vec2{line_b.start, line_b.end};
-            return collideSat(va, &vb, line_b.threshold);
-        },
-        .triangle => |triangle_b| {
-            return collideSat(va, triangle_b, 0.0);
-        },
-        .polygon=> |polygon_b| {
-            return collideSat(va, polygon_b, 0.0);
-        },
-    }
-    return false;
-}
-
-fn collides(collider_a: *const Collider, collider_b: *const Collider) bool {
-    switch (collider_a.*) {
-        .rectangle => |rect_a| {
-            switch (collider_b.*) {
-                .rectangle => |rect_b| {
-                    return rect_b.collidesRect(rect_a);
-                },                
-                .circle => |circle_b| {
-                    return circle_b.collidesRect(rect_a);
-                },
-                .point => |point_b| {
-                    return point_b.collidesRect(rect_a);
-                },
-                .line => |line_b| {
-                    return collideLine(&line_b, collider_a);
-                },
-                .triangle, .polygon => |poly_b| {
-                    return collidePolygon(poly_b, collider_a);
-                }
-            }
-        }
-        ,
-        .circle => |circle_a| {
-            switch (collider_b.*) {
-                .rectangle => |rect_b| {
-                    return circle_a.collidesRect(rect_b);
-                },
-                .circle => |circle_b| {
-                    return circle_a.collidesCircle(circle_b);
-                },
-                .point => |point_b| {
-                    return point_b.collidesCircle(circle_a);
-                },
-                .line => |line_b| {
-                    return collideLine(&line_b, collider_a);
-                },
-                .triangle, .polygon => |poly_b| {
-                    return collidePolygon(poly_b, collider_a);
-                }
-            }
-        },
-        .point => |point_a| {
-            switch (collider_b.*) {
-                .rectangle => |rect_b| {
-                    return point_a.collidesRect(rect_b);
-                },
-                .circle => |circle_b| {
-                    return point_a.collidesCircle(circle_b);
-                },
-                .point => |point_b| {
-                    return point_a.pos.x() == point_b.pos.x() and point_a.pos.y() == point_b.pos.y();
-                },
-                .line => |line_b| {
-                    return point_a.collidesLine(line_b);
-                },
-                .triangle => |triangle_b| {
-                    return point_a.collidesTriangle(triangle_b);
-                },
-                .polygon => |poly_b| {
-                    return point_a.collidesPoly(poly_b);
-                }
-            }
-        },
-        .line => |line_a| {
-            return collideLine(&line_a, collider_b);
-        },
-        .triangle, .polygon => |polygon_a| {
-            return collidePolygon(polygon_a, collider_b);
-        }
-    }
-    return false;
-}
-
 fn findObjectSelection(entities: *mach.Entities.Mod, pos: Vec2) ?mach.EntityID {
     // TODO: return options: first, last, all
     const p:Collider = .{.point = math.collision.Point{ .pos = pos }};

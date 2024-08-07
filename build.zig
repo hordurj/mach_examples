@@ -38,6 +38,13 @@ pub fn build(b: *std.Build) !void {
         "sandbox"
     };
 
+    const collision_ex_module = b.createModule(.{
+        .root_source_file = b.path("src/collision_ex.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    collision_ex_module.addImport("mach", mach_dep.module("mach"));
+
     for (examples) |example| {
         var filename_buf: [255]u8 = undefined;
         var run_command_buf: [255]u8 = undefined;
@@ -59,6 +66,8 @@ pub fn build(b: *std.Build) !void {
         exe.root_module.addImport("mach", mach_dep.module("mach"));
         exe.root_module.addImport("ztracy", ztracy.module("root"));
         exe.linkLibrary(ztracy.artifact("tracy"));
+
+        exe.root_module.addImport("collision_ex", collision_ex_module);
 
         const run_cmd = b.addRunArtifact(exe);
         const run_step = b.step(run_command, run_command_description);
